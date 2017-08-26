@@ -1,0 +1,10 @@
+/courses/ud923/filecorpus/paraglider.jpg cached_files/paraglider.jpg 
+/courses/ud923/filecorpus/road.jpg cached_files/road.jpg 
+/courses/ud923/filecorpus/yellowstone.jpg cached_files/yellowstone.jpg 
+/courses/ud923/filecorpus/moranabovejacksonlake.jpg cached_files/moranabovejacksonlake.jpg
+/courses/ud923/filecorpus/1047589 cached_files/1047589
+/courses/ud923/filecorpus/1048576 cached_files/1048576
+/courses/ud923/filecorpus/1049563 cached_files/1049563
+/courses/ud923/filecorpus/5241893 cached_files/5241893
+/courses/ud923/filecorpus/5242880 cached_files/5242880
+/courses/ud923/filecorpus/5243867 cached_files/5243867

@@ -1,0 +1,167 @@
+CS 8803 - Project 3 Extra Credit
+
+Author: Jonathan Bachmann (jbachmann3)
+Date:   July 12, 2016
+
+A multi-threaded implementation of the full "stack" of all binaries
+created for projects 1 and 3 (gfclient_download, webproxy, simplecached) has been successfully
+compiled and tested locally.  It should be expected that this extra credit project is a large amount
+of re-used or directly copied source from the other assignments.  Any modifications made were
+to support multi-threading operations in the gfserver.c source file.
+
+Basic tests have been performed (and passed) to ensure that:
+1) programs compile using make and the included makefile on the vagrant vm.
+2) both valgrind and address santization were testing during execution of the
+   programs and no memory leaks were encountered.  std file descriptors,
+   the the webprox socket were still left open after performing a signal interupt
+   but it's expected that this is normal for the multi-threaded implementation
+   using an infinite loop.
+3) a multitude of tests run using varied command line inputs to test multi-threading
+   and multiple cache server requests using more than one memory segment.
+4) tests for non-existent files for both teh cache server and for http requests
+   to the AWS server.
+5) I ran out of time and couldn't perform any edge tests or additional tests other
+   than those described above, so I expect that my implementation will fail ungracefully
+   under certain scenarios.
+
+
+#------------
+# Limitations
+#------------
+1) I had no idea what the special option -d was in webproxy.  Mostly I did not understand
+the comment about the part of the command "... f*t pending requests ...".  As I don't see
+any refernce to "f" as a command line or anything else, I couldn't make out how to successfully
+implement this option.  Further I ran out of time to research/post a question about this on piazza
+so I have chosen to not implement this.
+
+
+#-------------------
+# Build instructions
+#-------------------
+1) unpack the zip contents to a location of your choice
+2) type: "make all"
+4) you can clean up the build (remove all binaries and object files) with: "make clean"
+(yup, super easy, enjoy!!!)
+
+
+#-----------------------
+# Project design summary
+#-----------------------
+
+## gfclient_download executable
+- combined gfclient_download from project 1 - mtgf and gfclient.ch files
+  from project 1 - gflib.  I chose to keep any multi-threaded management
+  purley done in the gfclient_download.c file, I felt none was necessary
+  in gfclient itself.
+- copied over workload.[ch] from project 1 -
+- no additional changes were necessary except some small bug fixes found
+  during testing.
+
+## shm_channel API
+- I re-used my shm_channel api for IPC operations between webproxy and simplecached
+- No changed made from projec 3 (I've copied my design summary of the shm_channel API
+  from the project 3 API below for reference).
+
+## simplecached
+- simple copied all source files required for simplecached directly from pr3-part2.
+- no additional changes were necessary.
+
+## webproxy
+- copied over all source files required for webproxy from project 3.
+- copied over gfserver.[ch] files from project 1-part 1
+- updated gfserver to support handling concurrent requests
+   * pretty much copied my implementation used in simplecached
+   * using a thread-safe queue where boss thread monitors the TCP socket
+     for incoming request, then enqueues the requests and notifies the workers
+   * next worker available pops the request, parses the GF protocol text and
+     handles then forwards the request to the registered handler callback (discussed next)
+- I combined both the handle_with_cache and handle_with_curl functions into a single
+  handlers.c files.  Further I created a "master" handle_requests function that:
+     * first attempts to transfer the file from the cache server
+     * if cache server sends back "file not found" or error, then the request
+       is sent over http to the aws server using the curl implementation
+- I was able to directly use both of the existing handle-with functions,
+  making only a small modification to move any "gf_sendheader" calls for
+  file not found or errors into the main handler function.
+
+## Design summary copied from project 3 to describe the details
+##  for how I implemented the curl and cache server interaction
+
+#-----------------------------
+#PART 1 - Web-Proxy Using Curl
+#-----------------------------
+
+1) Provide callbacks to the curl header and write functions
+2) Header callback:
+    - parse each header line received and search for the http responses
+        - if found, OK, or File Not Found, mark using an error status variable
+    - parse each header line received and search for content-length description
+        - if found, call gf_sendheader to provide file length to client
+3) Write callback:
+    - pretty straight forward, simply write received bytes from curl out using
+      gf_send.
+4) Simple structure is used to communicate state to callbacks defined in handle_with_curl.
+   Structure contains the gfcontext, header and error status flag, and number of bytes sent via
+   GF_Protocol (returned by gf handler).
+5) Request handler performs initialization and cleanup of curl
+
+
+#-----------------------------------
+#PART 2 - Web-Proxy and Cache Daemon
+#-----------------------------------
+
+### Use of shm_channel for common client/server API
+- I decided to make use of shm_channel.[hc] files to create a common library
+  for a file cache client/server model
+- All details of communication between client/server and data transfer
+  are encapsulated in these source files
+- any type of hard coded constants required for the implementation (ie. shmem and msgque
+  keys, integers for data channels, error status flags, etc.) are all encapsulated
+  and not accessible/modifiable by users of the library.
+- Client/servers interact with high level and simplified function calls
+  for simplicity (or at least that's the idea)
+- 3 main parts of the API:
+  1) functionality to manage the data structure that is passed back
+     and forth on the communication channel
+  2) functionality to manage the communication channel (message queue)
+  3) functionality to manage the data channel (shared memory)
+
+### IPC API choice - SYSV
+- many tutorials and descriptions to leverage online
+- api seems straightforward
+- can take advantage of mtype value in the message buffer as a sort of channel selector (see below)
+
+### Communication channel design aspects
+- IPC message queue to synchronize shared mem and handle other messaging
+-   [-] overhead in system calls and mem copies other than other means (i.e. shared memory and sync constructs)
+-   [+] seems simpler to design/manage than sockets
+-   [+] I have not yet used message queues so this gives me a reason to learn
+- The cache, acting as the server, is responsible for creating and destroying the message queue
+- The proxy, acting as a client, only needs to first connect to the message queue
+- I decided to utilize the mtype value in the msg_bfr to act as a sort of channel selector.
+  There is a main client and server channel where all communication for requests is handled.
+  The mtype integer values for these are hard coded (but encapsulated in the API) so that
+  the client and server immediately can start communicating on a pre-established set of channels.
+  Once a request is valid (cache determines that file exists),   The remainder of communication between
+  client and server occurs on two "non-main" channels that are constant offset integers added to
+  id of shared memory segment that is used for the data channel.
+
+### Data channel design aspects
+- webproxy is responsible for initializing the shared memory and segments
+- webproxy allows threads to share usage of memory segments by utilizing a thread safe
+  queue that threads access when requests for files are recieved
+- webproxy communicates the memory segement id to the cache server so that the
+  unique data channel for handling file transfers is known on both sides
+- cache server only needs to know the mem segment id, then attaches to it to send
+  the data
+- message buffer structure prototype is defined in shm_channel and the details
+  are hidden from users of the API.  Can access structure contents only through
+  API function calls.  Further the message buffer structure contains a reference to
+  shm_context (described below).  Thus structure is constantly updated by both client
+  and server during communication.  It serves as the only data source for communication
+
+### shm_context data structure design aspects
+- this is the main data structure that is used for communication between the client and server
+- client and server do not have direct access to structure attribute.  The strucute is handled as
+  an opaque pointer that is passed into function calls to get/set attribute values.
+- see top of shm_channel.c for definition of the attributes
